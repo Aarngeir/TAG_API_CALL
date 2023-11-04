@@ -20,6 +20,6 @@ The application is composed of two main parts, the research by bus line and bus 
 ## Bus lines and stops
 By simply choosing a network, a bus line and a stop, you will be able to know when, in real time, the next bus/tram passes in both direction. The stop selector also works if you type the researched stop by autocompleting with the ones existing.
 Further development will be added to increase the amount of information you can gather with this tool.
-
+![alt text](Application_start.png?raw=true)
 ## Map research
 The map research has not been developped yet but it will show, from a location the closest stop and when transport pass at that stop.
