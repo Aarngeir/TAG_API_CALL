@@ -3,6 +3,7 @@ import pandas as pd
 import time
 import datetime
 import streamlit as st
+import os
 
 st.sidebar.title('Outil de recherche TAG')
 
@@ -12,16 +13,17 @@ if tool=='Ligne et arrêt':
     headers={"referer":"https://data.mobilites-m.fr/donnees"}
 
 
-    network=st.selectbox('Réseau',['Tram','Chrono'])
+    network=st.selectbox('Réseau',['Tram','Chrono','Flexo','Proximo'])
 
 
-        
-    response=requests.get("https://data.mobilites-m.fr/api/routers/default/index/routes?reseaux="+network.upper(),headers=headers)
-
-    list_ligne={}
-    for item in response.json():
-        list_ligne[item['shortName']]=item['id']
-
+    if network != 'Proximo':
+        response=requests.get("https://data.mobilites-m.fr/api/routers/default/index/routes?reseaux="+network.upper(),headers=headers)
+        list_ligne={}
+        for item in response.json():
+            list_ligne[item['shortName']]=item['id']
+    else:
+        list_ligne={'12':'SEM:12','13':'SEM:13','14':'SEM:14','15':'SEM:15','16':'SEM:16','19':'SEM:19','20':'SEM:20','21':'SEM:21','22':'SEM:22','23':'SEM:23','25':'SEM:25','26':'SEM:26'}     
+    
     ligne=st.selectbox('Ligne',list_ligne.keys())
 
 
@@ -40,7 +42,11 @@ if tool=='Ligne et arrêt':
             for item in response.json():
                 
                 terminus=item['pattern']['lastStopName']
-                occupancy=item['times'][0]['occupancy'].lower()
+                occupancy=None
+                try:
+                    occupancy=item['times'][0]['occupancy'].lower()
+                except:
+                    pass
                 seconds_bus=item['times'][0]['realtimeArrival']
                 minutes, seconds = divmod(seconds_bus, 60)
                 hours, minutes = divmod(minutes, 60)
@@ -49,10 +55,26 @@ if tool=='Ligne et arrêt':
                 now_seconds=t.hour*3600+t.minute*60+t.second
                 second_to_bus=seconds_bus-now_seconds
                 time_to_bus=str(datetime.timedelta(seconds=second_to_bus))
-                st.markdown('En direction de {}, le transport passera à {}, soit dans {}, et le nombre de passagers est {}'.format(terminus,time_arrival,time_to_bus,occupancy.lower()))
+                st.markdown('En direction de {}, à {}, soit dans {}.'.format(terminus,time_arrival,time_to_bus))
+                if occupancy!=None:
+                    st.markdown('Le nombre de passagers est {}'.format(occupancy.lower()))
+                if len(item['times'])>1:
+                    st.markdown('Les suivants sont à :')
+                    for next_bus in range(1,len(item['times'])):
+                        seconds_bus=item['times'][next_bus]['realtimeArrival']
+                        minutes, seconds = divmod(seconds_bus, 60)
+                        hours, minutes = divmod(minutes, 60)
+                        time_arrival="%d:%02d:%02d" % (hours, minutes, seconds)
+                        st.markdown(time_arrival)
                 
         else:
             st.markdown('Ce transport ne passe pas')
 
 elif tool=='Carte':
-    pass
+
+    st.markdown("L'outil carte n'a pas encore été développé")
+    if 'List_all_stops.csv' not in os.listdir():
+        all_transports=['C1','C2','C3','C4','C5','C6','C7','A','B','C','D','E']
+        List_all_stops=pd.DataFrame()
+        for transport in all_transports:
+            print(transport)
