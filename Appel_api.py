@@ -6,11 +6,11 @@ import streamlit as st
 import os
 
 st.sidebar.title('Outil de recherche TAG')
-
+headers={"referer":"https://data.mobilites-m.fr/donnees"}
 tool=st.sidebar.selectbox('Choix du mode de recherche',options=['Ligne et arrêt','Carte'])
 if tool=='Ligne et arrêt':
     st.markdown('Cet outil permet de rechercher pour une ligne et un arrêt le prochain transport qui passera')
-    headers={"referer":"https://data.mobilites-m.fr/donnees"}
+    
 
 
     network=st.selectbox('Réseau',['Tram','Chrono','Flexo','Proximo'])
@@ -72,9 +72,27 @@ if tool=='Ligne et arrêt':
 
 elif tool=='Carte':
 
-    st.markdown("L'outil carte n'a pas encore été développé")
     if 'List_all_stops.csv' not in os.listdir():
         all_transports=['C1','C2','C3','C4','C5','C6','C7','A','B','C','D','E']
         List_all_stops=pd.DataFrame()
         for transport in all_transports:
-            print(transport)
+            response=requests.get("https://data.mobilites-m.fr/api/routers/default/index/routes/SEM:"+transport+"/clusters",headers=headers)
+            for item in response.json():
+                List_all_stops.loc[item['name'],'Code']=item['code']
+                List_all_stops.loc[item['name'],'lat']=item['lat']
+                List_all_stops.loc[item['name'],'lon']=item['lon']
+
+        for i in range(15,74):
+            response=requests.get("https://data.mobilites-m.fr/api/routers/default/index/routes/SEM:"+str(i)+"/clusters",headers=headers)
+            if response.text!='Unknown route code':
+                for item in response.json():
+                    List_all_stops.loc[item['name'],'Code']=item['code']
+                    List_all_stops.loc[item['name'],'lat']=item['lat']
+                    List_all_stops.loc[item['name'],'lon']=item['lon']
+
+        List_all_stops.to_csv('List_all_stops.csv')
+
+    else:
+        List_all_stops=pd.read_csv('List_all_stops.csv',header=0,index_col=0)
+
+    st.map(List_all_stops,latitude='lat',longitude='lon',size=10)
