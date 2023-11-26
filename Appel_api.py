@@ -3,10 +3,57 @@ import pandas as pd
 import time
 import datetime
 import streamlit as st
+import json
 import os
+import heapq
+import plotly.express as px
+from geopy.distance import geodesic
+from geopy.geocoders import OpenCage
+
+def find_closest_coordinates(df, user_lat, user_lon, radius=500):
+    close_coordinates = []
+    for index, row in df.iterrows():
+        distance = geodesic((user_lat, user_lon), (row['lat'], row['lon'])).meters
+        if distance <= radius:
+            close_coordinates.append((index,row['lat'], row['lon']))
+    return close_coordinates
+
+# Calcul de l'heuristique pour l'algorithme A*
+def heuristic(node, goal,graph):
+    return geodesic(graph[node]['data'], graph[goal]['data']).km
+
+# Algorithme A*
+def astar(graph, start, end, priority_order):
+    heap = [(0, start, [], set())]
+    visited = set()
+
+    while heap:
+        (total_cost, current, path, lines) = heapq.heappop(heap)
+        
+        if current in visited:
+            continue
+
+        visited.add(current)
+        path = path + [current]
+
+        if current == end:
+            return path, lines
+
+        for neighbor in graph[current]['neighbors']:
+            change_cost = 1 if neighbor not in graph[path[-1]]['lines'] else 0
+            line_priority = 0 if not graph[neighbor]['lines'].intersection(priority_order) else 1
+            g_cost = total_cost + 1 + change_cost + line_priority
+            h_cost = heuristic(neighbor, end,graph)
+            f_cost = g_cost + h_cost
+            
+            heapq.heappush(heap, (f_cost, neighbor, path, lines.union({graph[neighbor]['lines'].intersection(graph[path[-1]]['lines']).pop()})))
 
 st.sidebar.title('Outil de recherche TAG')
 headers={"referer":"https://data.mobilites-m.fr/donnees"}
+with open('config.json') as f:
+    data = json.load(f)
+Open_cage_API_Key=data['Key']
+
 tool=st.sidebar.selectbox('Choix du mode de recherche',options=['Ligne et arrêt','Carte'])
 if tool=='Ligne et arrêt':
     st.markdown('Cet outil permet de rechercher pour une ligne et un arrêt le prochain transport qui passera')
@@ -73,26 +120,71 @@ if tool=='Ligne et arrêt':
 elif tool=='Carte':
 
     if 'List_all_stops.csv' not in os.listdir():
-        all_transports=['C1','C2','C3','C4','C5','C6','C7','A','B','C','D','E']
-        List_all_stops=pd.DataFrame()
+        all_transports=[]
+        List_all_stops=pd.DataFrame(columns=['name','Code','lat','lon','ligne'])
         for transport in all_transports:
             response=requests.get("https://data.mobilites-m.fr/api/routers/default/index/routes/SEM:"+transport+"/clusters",headers=headers)
             for item in response.json():
-                List_all_stops.loc[item['name'],'Code']=item['code']
-                List_all_stops.loc[item['name'],'lat']=item['lat']
-                List_all_stops.loc[item['name'],'lon']=item['lon']
+                new_row={'name':item['name'],'Code':item['code'],'lat':item['lat'],'lon':item['lon'],'ligne':transport}
+                List_all_stops.loc[len(List_all_stops)]=new_row
 
-        for i in range(15,74):
+        for i in range(10,74):
             response=requests.get("https://data.mobilites-m.fr/api/routers/default/index/routes/SEM:"+str(i)+"/clusters",headers=headers)
             if response.text!='Unknown route code':
                 for item in response.json():
-                    List_all_stops.loc[item['name'],'Code']=item['code']
-                    List_all_stops.loc[item['name'],'lat']=item['lat']
-                    List_all_stops.loc[item['name'],'lon']=item['lon']
+                    new_row={'name':item['name'],'Code':item['code'],'lat':item['lat'],'lon':item['lon'],'ligne':i}
+                    List_all_stops.loc[len(List_all_stops)]=new_row
 
         List_all_stops.to_csv('List_all_stops.csv')
 
     else:
         List_all_stops=pd.read_csv('List_all_stops.csv',header=0,index_col=0)
+    
+    adress = st.text_input("Entrez votre adresse")
+    geolocator = OpenCage(Open_cage_API_Key)
+    destination = st.text_input('Entrez une destination')
+    
+    graph = {}
 
-    st.map(List_all_stops,latitude='lat',longitude='lon',size=10)
+    for index, row in List_all_stops.iterrows():
+        stop = row['name']
+        line = row['ligne']
+        lat = row['lat']
+        lon = row['lon']
+        
+        if stop not in graph:
+            graph[stop] = {'data': (lat, lon), 'lines': set(), 'neighbors':set()}
+        
+        graph[stop]['lines'].add(line)
+    # Exemple d'utilisation
+    for stop in graph:
+        graph[stop]['lines']=set(sorted(graph[stop]['lines'],reverse=True))
+        for line in graph[stop]['lines']:
+            
+            graph[stop]['neighbors'].update(List_all_stops[List_all_stops['ligne'] == line]['name'])
+    
+    
+    start_stop = 'INRIA'
+    end_stop = 'Cémoi'
+    priority_order={'A','B','C','D','E','C1','C2','C3','C4','C5','C6','C7'}
+    shortest_path, lines_used = astar(graph, start_stop, end_stop, priority_order)
+    print(shortest_path,lines_used)
+    if adress:
+        location = geolocator.geocode(adress)
+        if location:
+            radius=500
+            #On récupère les arrêts les plus proches depuis notre rayon de recherche
+            closest_stops=find_closest_coordinates(List_all_stops.drop_duplicates('name'),location.latitude,location.longitude,radius)
+            if len(closest_stops)!=0:
+                st.markdown('Les arrêts contenus dans un rayon de {} mètres sont les suivants :'.format(radius))
+                closest_index=list(list(zip(*closest_stops))[0])
+                
+                #On gère l'affichage sur la carte
+                fig=px.scatter_mapbox(List_all_stops.loc[closest_index],lat='lat',lon='lon',text=List_all_stops.loc[closest_index,'name'],width=800, height=800)
+                fig.update_traces(marker=dict(color='green',size=15))
+                fig.update_layout(mapbox_style="open-street-map")
+                fig.add_trace(px.scatter_mapbox(lat=[location.latitude], lon=[location.longitude]).data[0])
+                fig.update_layout(mapbox=dict(center=dict(lat=location.latitude, lon=location.longitude),zoom=15))
+                st.plotly_chart(fig,use_container_witdh=True)
+            else:
+                st.markdown('Aucun arrêt dans les {} mètres'.format(radius))
