@@ -5,10 +5,22 @@ import datetime
 import streamlit as st
 import json
 import os
+import numpy as np
 import heapq
 import plotly.express as px
 from geopy.distance import geodesic
-from geopy.geocoders import OpenCage
+from fuzzywuzzy import fuzz,process
+
+def closest(lst, K):
+    min_abs=100
+
+    for i,j in enumerate(lst):
+        if abs(len(j[0])-len(K))<min_abs:
+            min_abs=abs(len(j[0])-len(K))
+            idx=i
+    
+    return lst[idx]
+
 
 def find_closest_coordinates(df, user_lat, user_lon, radius=500):
     close_coordinates = []
@@ -17,6 +29,32 @@ def find_closest_coordinates(df, user_lat, user_lon, radius=500):
         if distance <= radius:
             close_coordinates.append((index,row['lat'], row['lon']))
     return close_coordinates
+
+def geocode_nominatim(grenoble_lat, grenoble_lon, query):
+    base_url = "https://nominatim.openstreetmap.org/search"
+
+    params = {
+        'format': 'json',
+        'q': query,
+        'county': 'Isère',
+        'limit': 10
+    }
+
+    headers = {
+        'User-Agent': 'votre-application'  # Ajoutez un en-tête User-Agent pour respecter les politiques d'utilisation
+    }
+
+    response = requests.get(base_url, params=params, headers=headers)
+    result = response.json()
+    print(result)
+    if len(result) > 0:
+        for i, found_address in enumerate (result):
+            distance = geodesic((float(found_address['lat']), float(found_address['lon'])), (grenoble_lat, grenoble_lon)).km
+            if distance<20:
+                return float(found_address['lat']), float(found_address['lon'])
+    else:
+        print(f"Coordonnées introuvables pour {query}.")
+        return None, None
 
 # Calcul de l'heuristique pour l'algorithme A*
 def heuristic(node, goal,graph):
@@ -40,8 +78,9 @@ def astar(graph, start, end, priority_order):
             return path, lines
 
         for neighbor in graph[current]['neighbors']:
-            change_cost = 1 if neighbor not in graph[path[-1]]['lines'] else 0
-            line_priority = 0 if not graph[neighbor]['lines'].intersection(priority_order) else 1
+            #change_cost = 1 if neighbor not in graph[path[-1]]['lines'] else 0
+            change_cost = -4 if end in graph[neighbor]['neighbors'] else 1
+            line_priority = 0 if graph[neighbor]['lines'].intersection(priority_order) else 1
             g_cost = total_cost + 1 + change_cost + line_priority
             h_cost = heuristic(neighbor, end,graph)
             f_cost = g_cost + h_cost
@@ -54,7 +93,7 @@ with open('config.json') as f:
     data = json.load(f)
 Open_cage_API_Key=data['Key']
 
-tool=st.sidebar.selectbox('Choix du mode de recherche',options=['Ligne et arrêt','Carte'])
+tool=st.sidebar.selectbox('Choix du mode de recherche',options=['Ligne et arrêt','Itinéraire'])
 if tool=='Ligne et arrêt':
     st.markdown('Cet outil permet de rechercher pour une ligne et un arrêt le prochain transport qui passera')
     
@@ -117,7 +156,7 @@ if tool=='Ligne et arrêt':
         else:
             st.markdown('Ce transport ne passe pas')
 
-elif tool=='Carte':
+elif tool=='Itinéraire':
 
     if 'List_all_stops.csv' not in os.listdir():
         all_transports=[]
@@ -139,11 +178,7 @@ elif tool=='Carte':
 
     else:
         List_all_stops=pd.read_csv('List_all_stops.csv',header=0,index_col=0)
-    
-    adress = st.text_input("Entrez votre adresse")
-    geolocator = OpenCage(Open_cage_API_Key)
-    destination = st.text_input('Entrez une destination')
-    
+       
     graph = {}
 
     for index, row in List_all_stops.iterrows():
@@ -164,27 +199,75 @@ elif tool=='Carte':
             graph[stop]['neighbors'].update(List_all_stops[List_all_stops['ligne'] == line]['name'])
     
     
-    start_stop = 'INRIA'
-    end_stop = 'Cémoi'
+    start_stop = 'Stalingrad-Alliés'
+    end_stop = 'Seyssinet-Pariset Hôtel de Ville'
     priority_order={'A','B','C','D','E','C1','C2','C3','C4','C5','C6','C7'}
     shortest_path, lines_used = astar(graph, start_stop, end_stop, priority_order)
-    print(shortest_path,lines_used)
-    if adress:
-        location = geolocator.geocode(adress)
-        if location:
-            radius=500
-            #On récupère les arrêts les plus proches depuis notre rayon de recherche
-            closest_stops=find_closest_coordinates(List_all_stops.drop_duplicates('name'),location.latitude,location.longitude,radius)
-            if len(closest_stops)!=0:
-                st.markdown('Les arrêts contenus dans un rayon de {} mètres sont les suivants :'.format(radius))
-                closest_index=list(list(zip(*closest_stops))[0])
+
+    # print(shortest_path,lines_used)
+    rayon_adresse=20
+    grenoble_lat = 45.1885
+    grenoble_lon = 5.7245
+    shortest_path=[]
+    lines_used=[]
+    adress = st.text_input("Entrez un arrêt de départ")
+    
+    destination = st.text_input("Entrez un arrêt d'arrivée")
+    Calc_iti=st.button("Calculer l'itinéraire")
+    
+    if adress and destination and Calc_iti:
+        #latitude, longitude =  geocode_nominatim(grenoble_lat, grenoble_lon, adress)
+        
+        scores = process.extract(adress,List_all_stops.drop_duplicates(subset=['Code'])['name'],scorer=fuzz.partial_ratio)
+        if len(scores)>1 and scores[0][1]*0.95<scores[1][1]: #If two scores are almost identical
+            
+            best_input=closest([scores[0],scores[1]],adress)[2]
+            
+        else:
+            best_input = scores[0][2]
+        lat_input,lon_input=List_all_stops.loc[best_input,'lat'],List_all_stops.loc[best_input,'lon']
+
+        
+        scores = process.extract(destination,List_all_stops.drop_duplicates(subset=['Code'])['name'],scorer=fuzz.partial_ratio)
+        if len(scores)>1 and scores[0][1]*0.95<scores[1][1]: #If two scores are almost identical
+            
+            best_dest=closest([scores[0],scores[1]],destination)[2]
+            
+        else:
+            best_dest = scores[0][2]
+        lat_dest,lon_dest=List_all_stops.loc[best_dest,'lat'],List_all_stops.loc[best_dest,'lon']
+        #if lat_input!=None and lat_dest!=None:
+        #On récupère les arrêts les plus proches depuis notre rayon de recherche
+        radius=200
+        closest_stops=find_closest_coordinates(List_all_stops.drop_duplicates(subset=['Code']),lat_input,lon_input,radius)
+        
+        if len(closest_stops)!=0 :
+            for stops in closest_stops:
                 
-                #On gère l'affichage sur la carte
-                fig=px.scatter_mapbox(List_all_stops.loc[closest_index],lat='lat',lon='lon',text=List_all_stops.loc[closest_index,'name'],width=800, height=800)
-                fig.update_traces(marker=dict(color='green',size=15))
-                fig.update_layout(mapbox_style="open-street-map")
-                fig.add_trace(px.scatter_mapbox(lat=[location.latitude], lon=[location.longitude]).data[0])
-                fig.update_layout(mapbox=dict(center=dict(lat=location.latitude, lon=location.longitude),zoom=15))
-                st.plotly_chart(fig,use_container_witdh=True)
-            else:
-                st.markdown('Aucun arrêt dans les {} mètres'.format(radius))
+                s,l=astar(graph, List_all_stops.loc[stops[0],'name'], List_all_stops.loc[best_dest,'name'], priority_order)
+                shortest_path.append(s)
+                lines_used.append(l)
+            # st.markdown(shortest_path)
+            # st.markdown(lines_used)
+            shortest=min(shortest_path,key=len)
+            idx_shortest=shortest_path.index(shortest)
+            line=list(lines_used[idx_shortest])
+            #for i in range(len(line)):
+                
+            st.markdown('Le chemin le plus court est le suivant :')
+            for i in range(len(shortest)-1):
+                st.markdown('Prendre la ligne {} à {} et descendre à {}'.format(line[i],shortest[i],shortest[i+1]))
+
+        elif len(closest_stops)!=0 and 1==0:
+            st.markdown('Les arrêts contenus dans un rayon de {} mètres sont les suivants :'.format(radius))
+            closest_index=list(list(zip(*closest_stops))[0])
+            
+            #On gère l'affichage sur la carte
+            fig=px.scatter_mapbox(List_all_stops.loc[closest_index],lat='lat',lon='lon',text=List_all_stops.loc[closest_index,'name'],width=800, height=800)
+            fig.update_traces(marker=dict(color='green',size=15))
+            fig.update_layout(mapbox_style="open-street-map")
+            fig.add_trace(px.scatter_mapbox(lat=[lat_input], lon=[lon_input]).data[0])
+            fig.update_layout(mapbox=dict(center=dict(lat=lat_input, lon=lon_input),zoom=15))
+            st.plotly_chart(fig,use_container_witdh=True)
+        elif len(closest_stops)==0:
+            st.markdown('Aucun arrêt dans les {} mètres'.format(radius))
