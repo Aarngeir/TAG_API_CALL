@@ -89,9 +89,9 @@ def astar(graph, start, end, priority_order):
 
 st.sidebar.title('Outil de recherche TAG')
 headers={"referer":"https://data.mobilites-m.fr/donnees"}
-with open('config.json') as f:
-    data = json.load(f)
-Open_cage_API_Key=data['Key']
+# with open('config.json') as f:
+#     data = json.load(f)
+# Open_cage_API_Key=data['Key']
 
 tool=st.sidebar.selectbox('Choix du mode de recherche',options=['Ligne et arrêt','Itinéraire'])
 if tool=='Ligne et arrêt':
@@ -218,7 +218,7 @@ elif tool=='Itinéraire':
     if adress and destination and Calc_iti:
         #latitude, longitude =  geocode_nominatim(grenoble_lat, grenoble_lon, adress)
         
-        scores = process.extract(adress,List_all_stops.drop_duplicates(subset=['Code'])['name'],scorer=fuzz.partial_ratio)
+        scores = process.extract(adress,List_all_stops.drop_duplicates(subset=['Code'])['name'],scorer=fuzz.ratio)
         if len(scores)>1 and scores[0][1]*0.95<scores[1][1]: #If two scores are almost identical
             
             best_input=closest([scores[0],scores[1]],adress)[2]
@@ -228,7 +228,8 @@ elif tool=='Itinéraire':
         lat_input,lon_input=List_all_stops.loc[best_input,'lat'],List_all_stops.loc[best_input,'lon']
 
         
-        scores = process.extract(destination,List_all_stops.drop_duplicates(subset=['Code'])['name'],scorer=fuzz.partial_ratio)
+        scores = process.extract(destination,List_all_stops.drop_duplicates(subset=['Code'])['name'],scorer=fuzz.ratio)
+        
         if len(scores)>1 and scores[0][1]*0.95<scores[1][1]: #If two scores are almost identical
             
             best_dest=closest([scores[0],scores[1]],destination)[2]
@@ -236,7 +237,7 @@ elif tool=='Itinéraire':
         else:
             best_dest = scores[0][2]
         lat_dest,lon_dest=List_all_stops.loc[best_dest,'lat'],List_all_stops.loc[best_dest,'lon']
-        #if lat_input!=None and lat_dest!=None:
+        
         #On récupère les arrêts les plus proches depuis notre rayon de recherche
         radius=200
         closest_stops=find_closest_coordinates(List_all_stops.drop_duplicates(subset=['Code']),lat_input,lon_input,radius)
@@ -247,13 +248,19 @@ elif tool=='Itinéraire':
                 s,l=astar(graph, List_all_stops.loc[stops[0],'name'], List_all_stops.loc[best_dest,'name'], priority_order)
                 shortest_path.append(s)
                 lines_used.append(l)
-            # st.markdown(shortest_path)
-            # st.markdown(lines_used)
+            st.markdown(shortest_path)
+            st.markdown(lines_used)
             shortest=min(shortest_path,key=len)
             idx_shortest=shortest_path.index(shortest)
             line=list(lines_used[idx_shortest])
-            #for i in range(len(line)):
-                
+            #This loop is necessary to intervert bus lines that are not in the correct order when creating the list
+            for i in range(len(line)):
+                if not any(List_all_stops.loc[List_all_stops['name']==shortest[i],'ligne'].str.contains(line[i])):
+                    for j in range(i,len(shortest)):
+                        if any(List_all_stops.loc[List_all_stops['name']==shortest[j],'ligne'].str.contains(line[i])):
+                            break
+                    line[i],line[j]=line[j],line[i]
+
             st.markdown('Le chemin le plus court est le suivant :')
             for i in range(len(shortest)-1):
                 st.markdown('Prendre la ligne {} à {} et descendre à {}'.format(line[i],shortest[i],shortest[i+1]))
