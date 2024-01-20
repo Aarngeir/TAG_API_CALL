@@ -73,7 +73,7 @@ def astar(graph, start, end, priority_order):
 
         visited.add(current)
         path = path + [current]
-
+        
         if current == end:
             return path, lines
 
@@ -84,6 +84,9 @@ def astar(graph, start, end, priority_order):
             g_cost = total_cost + 1 + change_cost + line_priority
             h_cost = heuristic(neighbor, end,graph)
             f_cost = g_cost + h_cost
+
+            if neighbor==end:
+                f_cost=0
             
             heapq.heappush(heap, (f_cost, neighbor, path, lines.union({graph[neighbor]['lines'].intersection(graph[path[-1]]['lines']).pop()})))
 
@@ -198,7 +201,6 @@ elif tool=='Itinéraire':
             
             graph[stop]['neighbors'].update(List_all_stops[List_all_stops['ligne'] == line]['name'])
     
-    
     start_stop = 'Stalingrad-Alliés'
     end_stop = 'Seyssinet-Pariset Hôtel de Ville'
     priority_order={'A','B','C','D','E','C1','C2','C3','C4','C5','C6','C7'}
@@ -248,8 +250,8 @@ elif tool=='Itinéraire':
                 s,l=astar(graph, List_all_stops.loc[stops[0],'name'], List_all_stops.loc[best_dest,'name'], priority_order)
                 shortest_path.append(s)
                 lines_used.append(l)
-            st.markdown(shortest_path)
-            st.markdown(lines_used)
+            # st.markdown(shortest_path)
+            # st.markdown(lines_used)
             shortest=min(shortest_path,key=len)
             idx_shortest=shortest_path.index(shortest)
             line=list(lines_used[idx_shortest])
