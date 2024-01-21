@@ -7,6 +7,7 @@ import json
 import os
 import numpy as np
 import heapq
+import pytz
 import plotly.express as px
 from geopy.distance import geodesic
 from fuzzywuzzy import fuzz,process
@@ -140,7 +141,7 @@ if tool=='Ligne et arrêt':
                 minutes, seconds = divmod(seconds_bus, 60)
                 hours, minutes = divmod(minutes, 60)
                 time_arrival="%d:%02d:%02d" % (hours, minutes, seconds)
-                t=datetime.datetime.now()
+                t=datetime.datetime.now(pytz.timezone('Europe/Paris'))
                 now_seconds=t.hour*3600+t.minute*60+t.second
                 second_to_bus=seconds_bus-now_seconds
                 time_to_bus=str(datetime.timedelta(seconds=second_to_bus))
