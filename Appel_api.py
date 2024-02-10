@@ -12,6 +12,8 @@ import plotly.express as px
 from geopy.distance import geodesic
 from fuzzywuzzy import fuzz,process
 
+#https://medium.com/@nilufarmohammadi1/find-the-best-route-with-openstreetmap-using-python-da70eff5b1ac
+
 def closest(lst, K):
     min_abs=100
 
@@ -23,7 +25,9 @@ def closest(lst, K):
     return lst[idx]
 
 
-def find_closest_coordinates(df, user_lat, user_lon, radius=500):
+def find_closest_coordinates(df, user_lat, user_lon, radius=500,stop=None):
+    if stop!=None:
+        df=df.drop(df.loc[df['name']==stop].index)
     close_coordinates = []
     for index, row in df.iterrows():
         distance = geodesic((user_lat, user_lon), (row['lat'], row['lon'])).meters
@@ -122,9 +126,11 @@ if tool=='Ligne et arrêt':
     list_arret={}
     for item in response.json():
         list_arret[item['name']]=item['code']
-    arret=st.selectbox("Arrêt",list_arret.keys())
+    dis_list_arret=['']
+    dis_list_arret.extend(list(list_arret.keys()))
+    arret=st.selectbox("Arrêt",dis_list_arret)
 
-    if st.button('Valider'):
+    if st.button('Valider') and arret!='':
         response=requests.get("https://data.mobilites-m.fr/api/routers/default/index/clusters/"+list_arret[arret]+"/stoptimes?route="+list_ligne[ligne].replace(':','%3A'),headers=headers)
         if len(response.json())>0:
             st.markdown('A {}, le prochain {} de la ligne {} passe :\n'.format(arret,network,ligne))
@@ -202,10 +208,10 @@ elif tool=='Itinéraire':
             
             graph[stop]['neighbors'].update(List_all_stops[List_all_stops['ligne'] == line]['name'])
     
-    start_stop = 'Stalingrad-Alliés'
-    end_stop = 'Seyssinet-Pariset Hôtel de Ville'
+    # start_stop = 'Stalingrad-Alliés'
+    # end_stop = 'Seyssinet-Pariset Hôtel de Ville'
     priority_order={'A','B','C','D','E','C1','C2','C3','C4','C5','C6','C7'}
-    shortest_path, lines_used = astar(graph, start_stop, end_stop, priority_order)
+    # shortest_path, lines_used = astar(graph, start_stop, end_stop, priority_order)
 
     # print(shortest_path,lines_used)
     rayon_adresse=20
@@ -213,62 +219,53 @@ elif tool=='Itinéraire':
     grenoble_lon = 5.7245
     shortest_path=[]
     lines_used=[]
-    adress = st.text_input("Entrez un arrêt de départ")
+    dis_list_arret=['']
+    dis_list_arret.extend(List_all_stops.drop_duplicates(subset=['Code'])['name'].to_list())
     
-    destination = st.text_input("Entrez un arrêt d'arrivée")
+    address = st.selectbox("Entrez un arrêt de départ",dis_list_arret)
+    
+    destination = st.selectbox("Entrez un arrêt de destination",dis_list_arret)
     Calc_iti=st.button("Calculer l'itinéraire")
     
-    if adress and destination and Calc_iti:
-        #latitude, longitude =  geocode_nominatim(grenoble_lat, grenoble_lon, adress)
-        
-        scores = process.extract(adress,List_all_stops.drop_duplicates(subset=['Code'])['name'],scorer=fuzz.ratio)
-        if len(scores)>1 and scores[0][1]*0.95<scores[1][1]: #If two scores are almost identical
-            
-            best_input=closest([scores[0],scores[1]],adress)[2]
-            
-        else:
-            best_input = scores[0][2]
-        lat_input,lon_input=List_all_stops.loc[best_input,'lat'],List_all_stops.loc[best_input,'lon']
+    if address!='' and destination!='' and Calc_iti:
 
+        index_input=List_all_stops.loc[List_all_stops['name']==address].index
+        lat_input,lon_input=List_all_stops.loc[index_input,'lat'].values[0],List_all_stops.loc[index_input,'lon'].values[0]
         
-        scores = process.extract(destination,List_all_stops.drop_duplicates(subset=['Code'])['name'],scorer=fuzz.ratio)
-        
-        if len(scores)>1 and scores[0][1]*0.95<scores[1][1]: #If two scores are almost identical
-            
-            best_dest=closest([scores[0],scores[1]],destination)[2]
-            
-        else:
-            best_dest = scores[0][2]
-        lat_dest,lon_dest=List_all_stops.loc[best_dest,'lat'],List_all_stops.loc[best_dest,'lon']
+
+        index_dest=List_all_stops.loc[List_all_stops['name']==destination].index
+        lat_dest,lon_dest=List_all_stops.loc[index_dest,'lat'].values[0],List_all_stops.loc[index_dest,'lon'].values[0]
         
         #On récupère les arrêts les plus proches depuis notre rayon de recherche
         radius=200
-        closest_stops=find_closest_coordinates(List_all_stops.drop_duplicates(subset=['Code']),lat_input,lon_input,radius)
         
-        if len(closest_stops)!=0 :
-            for stops in closest_stops:
-                
-                s,l=astar(graph, List_all_stops.loc[stops[0],'name'], List_all_stops.loc[best_dest,'name'], priority_order)
-                shortest_path.append(s)
-                lines_used.append(l)
-            # st.markdown(shortest_path)
-            # st.markdown(lines_used)
-            shortest=min(shortest_path,key=len)
-            idx_shortest=shortest_path.index(shortest)
-            line=list(lines_used[idx_shortest])
-            #This loop is necessary to intervert bus lines that are not in the correct order when creating the list
-            for i in range(len(line)):
-                if not any(List_all_stops.loc[List_all_stops['name']==shortest[i],'ligne'].str.contains(line[i])):
-                    for j in range(i,len(shortest)):
-                        if any(List_all_stops.loc[List_all_stops['name']==shortest[j],'ligne'].str.contains(line[i])):
-                            break
-                    line[i],line[j]=line[j],line[i]
+        closest_stops=find_closest_coordinates(List_all_stops.drop_duplicates(subset=['Code']),lat_input,lon_input,radius,address)
+        
+        closest_stops.insert(0,(index_input[0],lat_input,lon_input))
+        
+        for stops in closest_stops:
+            
+            s,l=astar(graph, List_all_stops.loc[stops[0],'name'], destination, priority_order)
+            shortest_path.append(s)
+            lines_used.append(l)
+        # st.markdown(shortest_path)
+        # st.markdown(lines_used)
+        shortest=min(shortest_path,key=len)
+        idx_shortest=shortest_path.index(shortest)
+        line=list(lines_used[idx_shortest])
+        #This loop is necessary to intervert bus lines that are not in the correct order when creating the list
+        for i in range(len(line)):
+            if not any(List_all_stops.loc[List_all_stops['name']==shortest[i],'ligne'].str.contains(line[i])):
+                for j in range(i,len(shortest)):
+                    if any(List_all_stops.loc[List_all_stops['name']==shortest[j],'ligne'].str.contains(line[i])):
+                        break
+                line[i],line[j]=line[j],line[i]
 
-            st.markdown('Le chemin le plus court est le suivant :')
-            for i in range(len(shortest)-1):
-                st.markdown('Prendre la ligne {} à {} et descendre à {}'.format(line[i],shortest[i],shortest[i+1]))
+        st.markdown('Le chemin le plus court est le suivant :')
+        for i in range(len(shortest)-1):
+            st.markdown('Prendre la ligne {} à {} et descendre à {}'.format(line[i],shortest[i],shortest[i+1]))
 
-        elif len(closest_stops)!=0 and 1==0:
+        if len(closest_stops)!=0 and False:
             st.markdown('Les arrêts contenus dans un rayon de {} mètres sont les suivants :'.format(radius))
             closest_index=list(list(zip(*closest_stops))[0])
             
@@ -279,5 +276,5 @@ elif tool=='Itinéraire':
             fig.add_trace(px.scatter_mapbox(lat=[lat_input], lon=[lon_input]).data[0])
             fig.update_layout(mapbox=dict(center=dict(lat=lat_input, lon=lon_input),zoom=15))
             st.plotly_chart(fig,use_container_witdh=True)
-        elif len(closest_stops)==0:
+        elif len(closest_stops)==0 and False:
             st.markdown('Aucun arrêt dans les {} mètres'.format(radius))
