@@ -3,3 +3,12 @@ streamlit
 geopy
 plotly
 fuzzywuzzy
+pyrosm
+numpy
+geopandas
+networkx
+igraph
+folium
+scikit-learn
+mapclassify
+matplotlib
