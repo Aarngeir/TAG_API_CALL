@@ -3,6 +3,8 @@ import os
 import pandas as pd
 from geopy.distance import geodesic
 import heapq
+from draw_map import find_coordinates, plot_on_map
+
 
 def closest(lst, K):
     min_abs=100
@@ -143,8 +145,7 @@ def find_shortest_path(full_address, full_destination, List_all_stops, graph):
     priority_order={'A','B','C','D','E','C1','C2','C3','C4','C5','C6','C7'}
 
     rayon_adresse=20
-    grenoble_lat = 45.1885
-    grenoble_lon = 5.7245
+    
     shortest_path=[]
     lines_used=[]
     city_input,address = full_address.split(' / ')
@@ -187,6 +188,7 @@ def find_shortest_path(full_address, full_destination, List_all_stops, graph):
         shortest=shortest_from_start
     idx_shortest=shortest_path.index(shortest)
     line=list(lines_used[idx_shortest])
+    shortest_with_city=shortest
     shortest=[i.split(' / ')[1] for i in shortest]
     #This loop is necessary to intervert bus lines that are not in the correct order when creating the list
     for i in range(len(line)):
@@ -196,5 +198,35 @@ def find_shortest_path(full_address, full_destination, List_all_stops, graph):
                 if any(List_all_stops.loc[List_all_stops['name']==shortest[j],'ligne']==line[i]):
                     break
             line[i],line[j]=line[j],line[i]
-
+        
+        
+    coordinates=create_coord_table(shortest_with_city,List_all_stops,full_destination,full_address)    
+    plot_on_map(coordinates)
     return shortest, line
+
+def create_coord_table(shortest_with_city,List_all_stops,full_destination,full_address):
+    def call_coord_finder(stop,address):
+        coords=[]
+        idx_source=List_all_stops.loc[(List_all_stops['name']==address.split(' / ')[1])
+                                            &(List_all_stops['ville']==address.split(' / ')[0])].index[0]
+        depart_coordinates=(List_all_stops.loc[idx_source,'lat'],List_all_stops.loc[idx_source,'lon'])
+        if stop!=address:
+            idx_dest=List_all_stops.loc[(List_all_stops['name']==stop.split(' / ')[1])
+                                        &(List_all_stops['ville']==stop.split(' / ')[0])].index[0]
+            arrive_coordinates=(List_all_stops.loc[idx_dest,'lat'],List_all_stops.loc[idx_dest,'lon'])
+            coords.extend(find_coordinates(depart_coordinates,arrive_coordinates))
+        else:
+            coords.append(depart_coordinates)
+        
+        return coords
+    coordinates=[]
+    coordinates.extend(call_coord_finder(shortest_with_city[0],full_address))
+    for i in range(len(shortest_with_city)-1):
+        stop_idx=List_all_stops.loc[(List_all_stops['name']==shortest_with_city[i].split(' / ')[1])
+                    &(List_all_stops['ville']==shortest_with_city[i].split(' / ')[0])].index[0]
+        stop_coords=(List_all_stops.loc[stop_idx,'lat'],List_all_stops.loc[stop_idx,'lon'])
+        coordinates.append(stop_coords)
+    coordinates.extend(call_coord_finder(shortest_with_city[-1],full_destination))
+    
+    return coordinates
+
